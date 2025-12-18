@@ -173,4 +173,51 @@ public class ReviewServiceTest {
         // then
         assertTrue(updatedReview.approved());
     }
+    @Test
+    void userCanCreateFirstReviewPerPos() {
+        Review review = TestFixtures.getReviewFixtures().getFirst().toBuilder().id(null).build();
+        Pos pos = review.pos();
+        User author = review.author();
+
+        when(posDataService.getById(pos.getId())).thenReturn(pos);
+        when(reviewDataService.filter(pos, author)).thenReturn(List.of());
+        when(reviewDataService.upsert(any(Review.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Review saved = reviewService.upsert(review);
+
+        assertNotNull(saved);
+        verify(reviewDataService).upsert(any(Review.class));
+    }
+
+    @Test
+    void approvalNotSuccessfulIfQuorumNotReached() {
+        Review review = TestFixtures.getReviewFixtures().getFirst().toBuilder()
+                .approvalCount(0)
+                .approved(false)
+                .build();
+        User user = TestFixtures.getUserFixtures().getLast();
+
+        assertNotNull(review.getId());
+        assertNotNull(review.author().getId());
+        assertNotNull(user.getId());
+
+        if (Objects.equals(user.getId(), review.author().getId())) {
+            user = TestFixtures.getUserFixtures().getFirst();
+            assertNotNull(user.getId());
+        }
+
+        ApprovalConfiguration cfg = mock(ApprovalConfiguration.class);
+        when(cfg.minCount()).thenReturn(2);
+
+        ReviewServiceImpl svc = new ReviewServiceImpl(reviewDataService, userDataService, posDataService, cfg);
+
+        when(userDataService.getById(user.getId())).thenReturn(user);
+        when(reviewDataService.getById(review.getId())).thenReturn(review);
+        when(reviewDataService.upsert(any(Review.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Review result = svc.approve(review, user.getId());
+
+        assertFalse(result.approved());
+        verify(reviewDataService).upsert(any(Review.class));
+    }
 }
